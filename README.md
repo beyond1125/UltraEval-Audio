@@ -35,6 +35,10 @@ UltraEval-Audio — The world's first open-source framework supporting both spee
 
 # Changelog🔥
 
+- [2026/09/16]
+  - Support **Seed Audio** API TTS evaluation: `seed-audio-1.0`, `seed-audio-1.0-multilingual`
+  - Covers plain TTS, voice cloning (`prompt_audio`), and instruction-following TTS (`instruction`)
+  - Set `SEED_AUDIO_API_KEY` before running, see [registry/model/seed_audio.yaml](registry/model/seed_audio.yaml)
 - [2026/07/13]
   - Support **[InstructTTSEval](replication/InstructTTSEval.md)** for evaluating complex natural-language instruction following in TTS systems.
   - Includes English and Chinese subsets and evaluates fine-grained acoustic control (APS), descriptive style following (DSD), and role-play/scenario style following (RP) with a Gemini judge.
@@ -193,6 +197,10 @@ CUDA_VISIBLE_DEVICES=0 python audio_evals/main.py --dataset librispeech-test-cle
 
 # Test qwen2-audio-offline speech understanding capability
 CUDA_VISIBLE_DEVICES=0 python audio_evals/main.py --dataset sample --model qwen2-audio-chat
+
+# Test Seed Audio voice cloning capability
+export SEED_AUDIO_API_KEY=$your-key
+python audio_evals/main.py --dataset seed_tts_eval_zh --model seed-audio-1.0 --prompt voice-clone
 ```
 
 If you encounter errors or cannot reproduce Mini-CPM-o 2.6 results, please check [FAQ](FAQ.md).

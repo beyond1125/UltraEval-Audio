@@ -56,7 +56,7 @@ if __name__ == "__main__":
             kwargs = x.pop("kwargs", {})
             x.update(kwargs)
             if "return_timestamps" not in x:
-                x["return_timestamps"] = True
+                x["return_timestamps"] = False
 
             logger.info(f"Received input: {x}")
 
