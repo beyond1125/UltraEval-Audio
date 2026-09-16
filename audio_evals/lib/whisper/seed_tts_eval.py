@@ -46,7 +46,12 @@ if __name__ == "__main__":
             x = json.loads(prompt[anchor + 2 :])
             # Process input
             logger.info(f"Received input: {x}")
-            wav, sr = sf.read(x["audio"])
+            wav, sr = sf.read(x["audio"], dtype="float32")
+            # soundfile returns multi-channel audio as (frames, channels).
+            # Whisper expects one mono waveform; otherwise the processor can
+            # interpret the frame dimension as a very large batch.
+            if wav.ndim > 1:
+                wav = wav.mean(axis=1)
             if sr != 16000:
                 wav = scipy.signal.resample(wav, int(len(wav) * 16000 / sr))
                 sr = 16000
@@ -62,7 +67,10 @@ if __name__ == "__main__":
                     ).input_features
                     input_features = input_features.to(device)
                     forced_decoder_ids = processor.get_decoder_prompt_ids(
-                        language=x.get("generate_kwargs", {}).get("language", "english"), task="transcribe"
+                        language=x.get("generate_kwargs", {}).get(
+                            "language", "english"
+                        ),
+                        task="transcribe",
                     )
                     with torch.no_grad():
                         predicted_ids = model.generate(
@@ -80,7 +88,8 @@ if __name__ == "__main__":
                 ).input_features
                 input_features = input_features.to(device)
                 forced_decoder_ids = processor.get_decoder_prompt_ids(
-                    language=x.get("generate_kwargs", {}).get("language", "english"), task="transcribe"
+                    language=x.get("generate_kwargs", {}).get("language", "english"),
+                    task="transcribe",
                 )
                 predicted_ids = model.generate(
                     input_features, forced_decoder_ids=forced_decoder_ids

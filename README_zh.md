@@ -35,6 +35,10 @@ UltraEval-Audio——全球首个同时支持语音理解和语音生成评估�
 
 # 更新日志🔥
 
+- [2026/09/16]
+  - 支持 **Seed Audio** API TTS 评测：`seed-audio-1.0`、`seed-audio-1.0-multilingual`
+  - 覆盖普通 TTS、音色克隆（`prompt_audio`）以及指令遵循 TTS（`instruction`）三种模式
+  - 运行前需设置 `SEED_AUDIO_API_KEY`，配置见 [registry/model/seed_audio.yaml](registry/model/seed_audio.yaml)
 - [2026/08/25]
   - 支持 **[FireRedTTS3](replication/FireRedTTS3.md)** 评测（`fireredtts3-base`, `fireredtts3-instruct`），覆盖 Seed-TTS-Eval、MiniMax 多语言 TTS Benchmark（24 种语言）以及 InstructTTSEval
 - [2026/08/12]
@@ -204,6 +208,10 @@ CUDA_VISIBLE_DEVICES=0 python audio_evals/main.py --dataset librispeech-test-cle
 
 # 测试qwen2-audio-offline语音理解能力
 CUDA_VISIBLE_DEVICES=0 python audio_evals/main.py --dataset sample --model qwen2-audio-chat
+
+# 测试 Seed Audio 音色克隆能力
+export SEED_AUDIO_API_KEY=$your-key
+python audio_evals/main.py --dataset seed_tts_eval_zh --model seed-audio-1.0 --prompt voice-clone
 ```
 
 遇到报错或者不能复现Mini-CPM-o 2.6的结果，可以先看[常见问题](FAQ.md)。

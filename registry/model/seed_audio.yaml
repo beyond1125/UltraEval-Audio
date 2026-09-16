@@ -1,0 +1,27 @@
+# Volcengine Seed Audio API.
+# Set SEED_AUDIO_API_KEY before running an evaluation.
+seed-audio-1.0:
+  class: audio_evals.models.TTS.seed_audio.SeedAudio
+  args:
+    model_name: seed-audio-1.0
+    sample_params:
+      audio_config:
+        format: wav
+        sample_rate: 48000
+        pitch_rate: 0
+        speech_rate: 0
+        loudness_rate: 0
+      watermark: {}
+
+seed-audio-1.0-multilingual:
+  class: audio_evals.models.TTS.seed_audio.SeedAudio
+  args:
+    model_name: seed-audio-1.0-multilingual
+    sample_params:
+      audio_config:
+        format: wav
+        sample_rate: 48000
+        pitch_rate: 0
+        speech_rate: 0
+        loudness_rate: 0
+      watermark: {}
