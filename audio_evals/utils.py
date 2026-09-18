@@ -158,7 +158,10 @@ def merge_data4view(
     real_eval = eval_df.groupby("id").apply(concat_gdf).apply(pd.Series)
     real_eval = real_eval.reset_index()
     df = pd.merge(quiz, real_eval, on="id", how="left")
-    df = df.applymap(clean_illegal_chars)
+    # PATCH-001 (mechanical, upstream compat): pandas removed DataFrame.applymap in 3.0
+    # (deprecated 2.1). DataFrame.map is the elementwise-identical replacement.
+    df = (df.map(clean_illegal_chars) if hasattr(df, "map")
+          else df.applymap(clean_illegal_chars))
     df.to_excel(save_name, index=False)
 
 

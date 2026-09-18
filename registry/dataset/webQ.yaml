@@ -10,6 +10,6 @@ speech-web-questions-s2t:
   class: audio_evals.dataset.huggingface.Huggingface
   args:
     default_task: loose-aqa
-    f_name: TwinkStart/speech-web-questions
+    name: TwinkStart/speech-web-questions
     ref_col: answers
     split: test
