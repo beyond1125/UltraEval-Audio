@@ -1,0 +1,76 @@
+# ADDED BY US -- strided shard views so one benchmark can be split across GPU PROCESSES.
+# The rollout is GIL-bound so UEA's thread pool does not scale; --limit is prefix-only, which
+# left speech-web-questions a ~7.6 h serial floor. Shards partition exactly (res[k::N]);
+# benchmark total = sum(matches)/sum(n) over shards == the unsharded denominator.
+# Upstream dataset entries (llama_questions.yaml, triviaqa.yaml, webQ.yaml) are UNTOUCHED.
+
+speech-web-questions-s2t-sh0of5:
+  class: audio_evals.dataset.sharded_hf.ShardedHuggingface
+  args:
+    default_task: loose-aqa
+    name: TwinkStart/speech-web-questions
+    ref_col: answers
+    split: test
+    shard_id: 0
+    num_shards: 5
+
+speech-web-questions-s2t-sh1of5:
+  class: audio_evals.dataset.sharded_hf.ShardedHuggingface
+  args:
+    default_task: loose-aqa
+    name: TwinkStart/speech-web-questions
+    ref_col: answers
+    split: test
+    shard_id: 1
+    num_shards: 5
+
+speech-web-questions-s2t-sh2of5:
+  class: audio_evals.dataset.sharded_hf.ShardedHuggingface
+  args:
+    default_task: loose-aqa
+    name: TwinkStart/speech-web-questions
+    ref_col: answers
+    split: test
+    shard_id: 2
+    num_shards: 5
+
+speech-web-questions-s2t-sh3of5:
+  class: audio_evals.dataset.sharded_hf.ShardedHuggingface
+  args:
+    default_task: loose-aqa
+    name: TwinkStart/speech-web-questions
+    ref_col: answers
+    split: test
+    shard_id: 3
+    num_shards: 5
+
+speech-web-questions-s2t-sh4of5:
+  class: audio_evals.dataset.sharded_hf.ShardedHuggingface
+  args:
+    default_task: loose-aqa
+    name: TwinkStart/speech-web-questions
+    ref_col: answers
+    split: test
+    shard_id: 4
+    num_shards: 5
+
+speech-triviaqa-s2t-sh0of2:
+  class: audio_evals.dataset.sharded_hf.ShardedHuggingface
+  args:
+    default_task: loose-aqa
+    name: TwinkStart/speech-triavia-qa
+    ref_col: answer
+    split: test
+    shard_id: 0
+    num_shards: 2
+
+speech-triviaqa-s2t-sh1of2:
+  class: audio_evals.dataset.sharded_hf.ShardedHuggingface
+  args:
+    default_task: loose-aqa
+    name: TwinkStart/speech-triavia-qa
+    ref_col: answer
+    split: test
+    shard_id: 1
+    num_shards: 2
+

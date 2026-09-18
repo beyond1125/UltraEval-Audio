@@ -1,0 +1,13 @@
+# ADDED BY US -- TASTE-SLM adapter registration (not upstream).
+taste-slm-0.8b:
+  class: audio_evals.models.taste_slm.TasteSLM
+  args:
+    slm_root: ${TASTE_S_SLM_ROOT}
+    config_path: ${TASTE_S_SLM_ROOT}/eval/configs/tastes_slm_0p8b_spokenqa.yaml
+
+# ADDED BY US -- official 9B stage-1 SLM, speech_token_delay = 1.
+taste-slm-9b-d1:
+  class: audio_evals.models.taste_slm.TasteSLM
+  args:
+    slm_root: ${TASTE_S_SLM_ROOT}
+    config_path: ${TASTE_S_SLM_ROOT}/eval/configs/tastes_slm_9b_d1_spokenqa.yaml

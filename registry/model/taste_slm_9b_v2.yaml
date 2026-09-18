@@ -1,0 +1,22 @@
+# ADDED BY US -- the RE-UPLOADED 9B and the new 9B+KL (JokeMaker/...v4-epochs, 2026-09-18).
+#
+# Separate file on purpose: taste_slm.yaml, taste_slm_datav2.yaml, taste_slm_4b_kl.yaml and
+# taste_slm_fd.yaml are untouched, as are all of their results in res/. In particular
+# `taste-slm-9b-datav2` still points at the FIRST 9B upload, which the publisher has since said
+# was the wrong checkpoint -- it is left in place only so the old run stays reproducible.
+#
+# The two entries below are identical in every respect except the profile they load. There is no
+# KL-specific class, argument or setting: text_kl is a training-time loss and does not exist
+# anywhere in the inference path.
+
+taste-slm-9b-v2:
+  class: audio_evals.models.taste_slm.TasteSLM
+  args:
+    slm_root: ${TASTE_S_SLM_ROOT}
+    config_path: ${TASTE_S_SLM_ROOT}/eval/configs/tastes_slm_9b_v2_spokenqa.yaml
+
+taste-slm-9b-kl:
+  class: audio_evals.models.taste_slm.TasteSLM
+  args:
+    slm_root: ${TASTE_S_SLM_ROOT}
+    config_path: ${TASTE_S_SLM_ROOT}/eval/configs/tastes_slm_9b_kl_spokenqa.yaml

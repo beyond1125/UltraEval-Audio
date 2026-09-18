@@ -1,0 +1,13 @@
+diff --git a/registry/dataset/webQ.yaml b/registry/dataset/webQ.yaml
+index 2bd0292..cae12ab 100644
+--- a/registry/dataset/webQ.yaml
++++ b/registry/dataset/webQ.yaml
+@@ -10,6 +10,6 @@ speech-web-questions-s2t:
+   class: audio_evals.dataset.huggingface.Huggingface
+   args:
+     default_task: loose-aqa
+-    f_name: TwinkStart/speech-web-questions
++    name: TwinkStart/speech-web-questions
+     ref_col: answers
+     split: test
+\ No newline at end of file

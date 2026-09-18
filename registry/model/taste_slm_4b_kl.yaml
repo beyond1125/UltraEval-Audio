@@ -1,0 +1,8 @@
+# ADDED BY US -- KL-loss pretrained 4B stage-1 checkpoint.
+# Separate file; taste_slm.yaml / taste_slm_datav2.yaml / taste_slm_fd.yaml and all their results
+# in res/ are untouched.
+taste-slm-4b-kl:
+  class: audio_evals.models.taste_slm.TasteSLM
+  args:
+    slm_root: ${TASTE_S_SLM_ROOT}
+    config_path: ${TASTE_S_SLM_ROOT}/eval/configs/tastes_slm_4b_kl_spokenqa.yaml

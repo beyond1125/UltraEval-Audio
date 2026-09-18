@@ -1,0 +1,14 @@
+# ADDED BY US -- datav2 stage-1 checkpoints with the NEW FSQ tokenizer.
+# Separate file: taste_slm.yaml (0.8B / 9B d=1) and taste_slm_fd.yaml (stage-2) are untouched,
+# as are all their results in res/.
+taste-slm-4b-datav2:
+  class: audio_evals.models.taste_slm.TasteSLM
+  args:
+    slm_root: ${TASTE_S_SLM_ROOT}
+    config_path: ${TASTE_S_SLM_ROOT}/eval/configs/tastes_slm_4b_datav2_spokenqa.yaml
+
+taste-slm-9b-datav2:
+  class: audio_evals.models.taste_slm.TasteSLM
+  args:
+    slm_root: ${TASTE_S_SLM_ROOT}
+    config_path: ${TASTE_S_SLM_ROOT}/eval/configs/tastes_slm_9b_datav2_spokenqa.yaml

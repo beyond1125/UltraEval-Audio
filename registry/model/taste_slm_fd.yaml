@@ -1,0 +1,30 @@
+# ADDED BY US -- stage-2 FULL-DUPLEX TASTE-S SLM (9B), separate from the stage-1 entries in
+# taste_slm.yaml, which are left untouched along with every stage-1 result in res/.
+#
+# Checkpoint : JokeMaker/taste-s-stage1-full-f32-validbest8-v4-epochs @ 6ef188d8,
+#              checkpoints/slm_stage2_qwen35_9b_fsdp_v1_recovery1/valid_best  (step 1089)
+#              sha256 1dd15e2a350592e2945867620f9925b41435e2d74ed7f7b466eb51acc4985c03
+# Author code: Jensen-JinhuiLiu/TASTE-S_Full_duplex_SLM @ 728867b
+# Backbone   : Qwen/Qwen3.5-9B @ c202236235762e1c871ad0ccb60c8ee5ba337b9a
+# Tokenizer  : same repo @ 39f51cfc, stage2_fsq_fast_full_float32_8gpu_v1/valid_best
+#
+# ⚠️ Device is set by `device:` here and passed straight to load_models(). Do NOT use the
+# CUDA_VISIBLE_DEVICES=N idiom with the author's CLI -- generate.py:463 / inference.py:52
+# OVERWRITE that variable with str(--gpu), so an outer value is discarded and --gpu 0 lands on
+# physical GPU 0. This adapter never calls their main(), so it is unaffected.
+taste-slm-fd-9b-stage2:
+  class: audio_evals.models.taste_slm_fd.TasteSLMFullDuplex
+  args:
+    fd_eval_root: ${TASTE_S_FD_REPO}/train_slm/evaluation/full_duplex_eval
+    ckpt_dir: ${TASTE_S_STAGE2_CKPT}/valid_best
+    recipe: ${TASTE_S_STAGE2_CKPT}/model_recipe.yaml
+    taste_s_tokenizer_dir: ${TASTE_S_SLM_ROOT}/pretrained9b/taste_s_tokenizer
+    qwen_model_dir: ${QWEN35_9B}
+    trace_dir: ${TASTE_S_STAGE2_OUT}/uea_traces
+    device: cuda:7
+    # author defaults, unchanged (generate.py CLI defaults)
+    temperature: 0.8
+    top_k: 25
+    top_p: 1.0
+    max_words_per_block: 40
+    max_extra_silent_blocks: 15
