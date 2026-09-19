@@ -1,0 +1,28 @@
+# ADDED BY US -- DIAGNOSTIC dataset views for the S2S-vs-S2T comparison. NOT for reported scores.
+#
+# The six rows below are LlamaQ items the 9B datav2 (bundle_9b_v2) answered CORRECTLY in S2T
+# (full S2T-correct set: 11 51 65 84 87 96 97 98 107 109 110 113 115 116 126 160 184 188 189 190
+# 191 199 241 285 -- 24/300). Restricting to them is what makes the synthesis+ASR loss measurable:
+# on an item the model already got wrong, S2S and S2T are both wrong and the comparison says
+# nothing.
+#
+# ⚠️ Rows were chosen USING the reference, so any accuracy over this view is a diagnostic only.
+# Reported S2S numbers must come from the full dataset.
+llama-questions-s2tcorrect6:
+  class: audio_evals.dataset.idlist_hf.IdListHuggingface
+  args:
+    default_task: loose-aqa
+    name: TwinkStart/llama-questions
+    split: test
+    ref_col: Answer
+    ids: [11, 51, 65, 84, 87, 96]
+
+llama-questions-s2tcorrect24:
+  class: audio_evals.dataset.idlist_hf.IdListHuggingface
+  args:
+    default_task: loose-aqa
+    name: TwinkStart/llama-questions
+    split: test
+    ref_col: Answer
+    ids: [11, 51, 65, 84, 87, 96, 97, 98, 107, 109, 110, 113, 115, 116, 126, 160,
+          184, 188, 189, 190, 191, 199, 241, 285]

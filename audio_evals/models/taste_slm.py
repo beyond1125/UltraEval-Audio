@@ -1,8 +1,9 @@
 """
 UltraEval-Audio model adapter for the joint TASTE-S SLM (TASTE-SLM).
 
-ADDED BY US. This file is an ADAPTER, not an upstream bug fix. It is the only new
-model class in this checkout; see PATCHES.md for the (separate) mechanical fixes.
+ADDED BY US. This file is an ADAPTER, not an upstream bug fix -- the stage-1 one; taste_slm_fd.py and
+taste_slm_tb.py are its full-duplex and turn-based siblings. See README_TASTE_S.md and patches/ for
+the (separate) mechanical fixes.
 
 What it does and does not do
 ----------------------------
@@ -80,6 +81,20 @@ def _audio_path_from_prompt(prompt: PromptStruct) -> str:
     return paths[0]
 
 
+def _per_sample_path(root: str, audio_path: str) -> str:
+    """`<root>/<dataset>/<split>/<sample_id>` for a question at `.../<dataset>/<split>/<id>.wav`.
+
+    Every benchmark numbers its rows from 0, so a path keyed by sample_id alone is shared between
+    datasets: concurrent runs overwrite each other's per-sample outputs (and an S2S run could
+    transcribe another dataset's wav). The dataset/split come from the question's own path, so
+    nothing has to be set at launch. sample_id -- and hence the per-sample seed -- is unchanged.
+    """
+    parts = os.path.normpath(audio_path).split(os.sep)
+    if len(parts) < 3:
+        raise ValueError(f"cannot derive <dataset>/<split> from audio path {audio_path!r}")
+    return os.path.join(root, parts[-3], parts[-2], os.path.splitext(parts[-1])[0])
+
+
 class TasteSLM(OfflineModel):
     """Joint TASTE-S SLM, question-audio -> answer-text."""
 
@@ -87,6 +102,8 @@ class TasteSLM(OfflineModel):
         self,
         slm_root: str,
         config_path: str = None,
+        audio_out_dir: str = None,
+        campplus_dir: str = None,
         sample_params: Dict[str, any] = None,
         gpu_id=None,
         **overrides,
@@ -104,6 +121,14 @@ class TasteSLM(OfflineModel):
         self.slm_root = os.path.abspath(os.path.expandvars(slm_root))
         self.config_path = os.path.expandvars(config_path) if config_path else config_path
         self.overrides = overrides
+        # S2S arm. When `audio_out_dir` is set, every answer is synthesised to a wav there and the
+        # path is returned under the `audio` key, which is what UEA's `extract_audio`
+        # (JsonExtract extract_key=audio) reads. Unset -> S2T only, and nothing about that path
+        # changes. The profile must also set retain_synthesis_inputs and tail_steps: -1; see
+        # eval/vocode.py for why.
+        self.audio_out_dir = os.path.expandvars(audio_out_dir) if audio_out_dir else None
+        self.campplus_dir = os.path.expandvars(campplus_dir) if campplus_dir else None
+        self._vocoder = None
         self._adapter = None
         self._meta = None
         self._lock = threading.Lock()
@@ -189,6 +214,44 @@ class TasteSLM(OfflineModel):
         }
 
     # ------------------------------------------------------------------ inference
+    # ------------------------------------------------------------------ S2S synthesis
+    def _synthesise(self, adapter, sample_id: str, audio_path: str):
+        """Vocode the answer just generated -> {"audio": path, "meta": {...}} or None.
+
+        Uses `eval/vocode.py`, the SAME implementation as the `spokenqa_audio.py` inspection dump,
+        so a scored S2S answer is synthesised exactly like the samples we listened to.
+
+        A synthesis failure must not be reported as a model failure: the text answer is already
+        valid and is still returned. The error is recorded under `audio_synthesis_error` and the
+        item will fail `extract_audio` instead, which is visible in the status breakdown.
+        """
+        from eval.vocode import Vocoder, default_campplus_dir, write_wav
+
+        self._synth_error = None
+        ls = getattr(adapter, "last_synthesis", None)
+        if not ls:
+            self._synth_error = ("adapter.last_synthesis is empty: set retain_synthesis_inputs: "
+                                 "true in the profile")
+            return None
+        if ls.get("sample_id") != sample_id:
+            self._synth_error = f"stale synthesis inputs ({ls.get('sample_id')} != {sample_id})"
+            return None
+        try:
+            if self._vocoder is None:
+                self._vocoder = Vocoder(
+                    adapter._loaded, adapter.cfg.device,
+                    self.campplus_dir or default_campplus_dir(self.slm_root))
+            v = self._vocoder.vocode(ls["answer_ids"], ls["answer_taste"],
+                                     ls["answer_taste_complete"], ls["question_wav16"])
+            fp = write_wav(_per_sample_path(self.audio_out_dir, audio_path) + ".wav",
+                           v["wave"], v["sample_rate"])
+            meta = {k: v[k] for k in v if k != "wave"}
+            return {"audio": fp, "meta": meta}
+        except Exception as exc:  # noqa: BLE001
+            self._synth_error = f"{type(exc).__name__}: {str(exc)[:200]}"
+            logger.warning("[taste-slm] synthesis failed for %s: %s", sample_id, self._synth_error)
+            return None
+
     def _inference(self, prompt: PromptStruct, **kwargs) -> str:
         from eval.schemas import AudioInput, Status
 
@@ -196,6 +259,7 @@ class TasteSLM(OfflineModel):
         # Stable per-sample identity -> stable speech-sampling seed (sha256(base_seed:sample_id)).
         sample_id = os.path.splitext(os.path.basename(audio_path))[0]
 
+        synth = None
         with self._lock:
             adapter = self._build()
             res = adapter.generate(
@@ -205,6 +269,21 @@ class TasteSLM(OfflineModel):
                     audio_path=audio_path,
                 )
             )
+            if self.audio_out_dir and res.status == Status.OK:
+                # The flush must actually have run. tail_steps: 0 would leave answer_taste `delay`
+                # frames short, and eval/vocode.py would then refuse -- but failing here, once, with
+                # the profile named is far easier to act on than N per-item synthesis errors.
+                _md = res.metadata or {}
+                if _md.get("tail_steps_run") != _md.get("effective_delay"):
+                    raise RuntimeError(
+                        f"S2S needs the speech delay flushed: tail_steps_run="
+                        f"{_md.get('tail_steps_run')} but the checkpoint's delay is "
+                        f"{_md.get('effective_delay')}. Set tail_steps: -1 in "
+                        f"{self.config_path}."
+                    )
+                # Synthesis has to happen under the same lock: it reads `adapter.last_synthesis`,
+                # which the next generate() would overwrite.
+                synth = self._synthesise(adapter, sample_id, audio_path)
 
         md = res.metadata or {}
         out = {
@@ -223,6 +302,11 @@ class TasteSLM(OfflineModel):
             "truncated": md.get("truncated"),
             "answer_tokens": md.get("answer_tokens"),
             "joint_steps": md.get("joint_steps"),
+            # S2S correctness evidence: tail_steps_run must equal the checkpoint's delay, otherwise
+            # answer_taste is short and the audio is clipped. Surfaced on BOTH arms so an S2T record
+            # also shows tail_steps_run: 0 explicitly rather than leaving it unstated.
+            "tail_steps_run": md.get("tail_steps_run"),
+            "answer_taste_complete": md.get("answer_taste_complete"),
             "stop_id": md.get("stop_id"),
             "speech_feedback_steps": md.get("speech_feedback_steps"),
             "sample_seed": md.get("sample_seed"),
@@ -235,5 +319,9 @@ class TasteSLM(OfflineModel):
             "ctc_num_tokens": md.get("ctc_num_tokens"),
             "no_final_answer_reason": md.get("no_final_answer_reason"),
             "elapsed_sec": md.get("elapsed_sec"),
+            # S2S: `audio` is what extract_audio reads. Absent on the S2T path.
+            **({"audio": synth["audio"], "audio_synthesis": synth["meta"]} if synth else {}),
+            **({"audio_synthesis_error": self._synth_error} if getattr(self, "_synth_error", None)
+               else {}),
         }
         return json.dumps(out, ensure_ascii=False)

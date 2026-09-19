@@ -1,0 +1,14 @@
+# ADDED BY US -- the S2S transcription step, wired to the LOCAL whisper-large-v3.
+# Identical to upstream `speech2text` (registry/process/speech_model_output.yaml) except for the
+# model it resolves; the prompt (`whisper-asr`) and the class are upstream's.
+speech2text-local:
+  class: audio_evals.process.speech.Speech2text
+  args:
+    model_name: whisper-local
+
+# ADDED BY US -- as speech2text-local, but an empty `audio` ("model never spoke") becomes an empty
+# transcript instead of a failure. See audio_evals/process/speech_allow_empty.py.
+speech2text-local-allow-empty:
+  class: audio_evals.process.speech_allow_empty.Speech2textAllowEmpty
+  args:
+    model_name: whisper-local

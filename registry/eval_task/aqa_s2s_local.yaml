@@ -1,0 +1,30 @@
+# ADDED BY US -- S2S spoken QA with the local whisper. The chain is upstream's `s2s-aqa`
+# (registry/eval_task/aqa.yaml) with `speech2text` swapped for `speech2text-local`; prompt,
+# evaluator and aggregation are unchanged, so S2S and S2T numbers stay directly comparable:
+#
+#   S2T: extract_text                        -> qa-exist-match -> acc
+#   S2S: extract_audio -> speech2text-local  -> qa-exist-match -> acc
+#
+# `dataset` and `model` here are only defaults that --dataset / --model override.
+s2s-aqa-local:
+  class: audio_evals.base.EvalTaskCfg
+  args:
+    dataset: llama-questions
+    prompt: direct-aqa
+    model: qwen-audio-chat
+    post_process: ['extract_audio', 'speech2text-local']
+    evaluator: qa-exist-match
+    agg: acc
+
+# ADDED BY US -- S2S for models that may legitimately never speak (full-duplex). Identical to
+# s2s-aqa-local except the transcription step maps `audio: ""` to an empty transcript (scored wrong,
+# kept in the denominator) instead of raising. Non-empty audio takes exactly the same path.
+s2s-aqa-local-allow-empty:
+  class: audio_evals.base.EvalTaskCfg
+  args:
+    dataset: llama-questions
+    prompt: direct-aqa
+    model: qwen-audio-chat
+    post_process: ['extract_audio', 'speech2text-local-allow-empty']
+    evaluator: qa-exist-match
+    agg: acc

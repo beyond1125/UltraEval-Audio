@@ -102,7 +102,8 @@ its trained `spk_head`. We never force speaking and never inject a prompt suffix
 
 The consequence is that **silence is a valid outcome, not an error**. An item where the model never
 spoke is recorded as `status: "ok"` with `empty_response: true`, and it counts in the denominator.
-Per-sample traces land in `$TASTE_S_STAGE2_OUT/uea_traces/<sample_id>/trace.jsonl`.
+Per-sample traces land in `$TASTE_S_STAGE2_OUT/uea_traces/<dataset>/<split>/<sample_id>/trace.jsonl`
+(runs before 2026-09-19 used `uea_traces/<sample_id>/`, which let datasets overwrite each other).
 
 So the accuracy figure alone is badly misleading here. On LlamaQ:
 
@@ -132,6 +133,58 @@ synthesis is fine, so the fault is in the generated taste codes, not the vocoder
 reported here is therefore the model's own text, not an ASR transcript of its audio. Section 14 of
 `STAGE2_9B_EVALUATION.md` has the diagnosis.
 
-## 6. Not done
+## 6. S2S — scoring what the model says
+
+Entry `taste-slm-fd-9b-stage2-s2s` (`registry/model/taste_slm_fd_s2s.yaml`): the same checkpoint,
+code, tokenizer and decoding as `taste-slm-fd-9b-stage2`, plus `synthesize_audio: true` and
+`seed: 42`. General S2S setup (local whisper, its venv) is in `README_TASTE_S.md` §S2S.
+
+```bash
+cd "$UEA_ROOT"
+tools/run_s2s_qa.sh 0 taste-slm-fd-9b-stage2-s2s llama-questions-s2t
+# -> res/taste-slm-fd-9b-stage2-s2s/llama-questions-s2t/<ts>_s2s.jsonl   (S2S)
+#    res/taste-slm-fd-9b-stage2-s2s/llama-questions-s2t/<ts>_s2t.jsonl   (S2T of the same generation)
+```
+
+⚠️ **Device works the other way round from §3.** The S2S entry uses `device: cuda:0` and the
+launcher exports `CUDA_VISIBLE_DEVICES=<gpu>`, because the isolated whisper subprocess takes its
+device from that variable — this puts model and whisper on one card (~51 GB). The adapter still
+never calls the author's `main()`, so nothing overwrites the variable.
+
+**What gets transcribed.** `run_one(skip_audio=False)` renders the author's own `agent_audio.wav`:
+agent channel only, each speaking span through the tokenizer's unit decoder + vocoder, each silent
+block as exactly 0.8 s of zeros. The adapter cuts the leading and trailing silent blocks off
+(`agent_audio_spoken.wav`) and asserts every cut sample is zero, so the cut can never remove speech.
+The leading run is the model listening to the question — seconds of digital silence that invite
+whisper to hallucinate. Interior gaps are kept. Voice: the author's benchmark default, a zero
+speaker embedding.
+
+**Never spoke.** The adapter returns `audio: ""`, which `speech2text-local-allow-empty` turns into
+an empty transcript without calling whisper: scored wrong, kept in the denominator, exactly as the
+S2T arm treats an empty text.
+
+**Pairing.** Decoding is sampled, so a separate S2S run would not reproduce the S2T run's text.
+The launcher's second step re-scores the S2S run's own records as S2T (`--inf_file`), so S2S − S2T
+is measured on identical answers. `seed: 42` seeds each sample from `sha256(seed, sample_id)`,
+covering generation and the unit decoder. The published S2T numbers in §4 came from an unseeded
+run, so compare S2S with the paired `_s2t` file, not with §4.
+
+**Per-sample record** (`inference` → `audio_synthesis`): `spoke_blocks`, `first/last_spoken_block`,
+`full_sec`, `asr_sec`, and `drift_sec` — how far the rendered speech overran its block budget.
+
+**Expect S2S ≈ 0**, and say why when reporting it. `STAGE2_9B_EVALUATION.md` §14: this checkpoint's
+generated taste codes do not carry its generated text (its own CTC head recovers 1–5 tokens from
+8–22 s of audio), while teacher-forced synthesis through the same path is intelligible. On the
+first five LlamaQ items: text *"Well, this is the first president. I'm pretty sure it was
+Jefferson"* → whisper *"with this present phrase with this separate"*. That is a model defect,
+not an evaluation artifact.
+
+**Cost.** Items where the model stays silent cost about what S2T costs; items where it speaks add
+unit-decoder synthesis and whisper. Measured on 5 LlamaQ items (A100-80GB, GPU to
+itself): **~25 s** for an item where the model spoke, **~3 s** for a silent one, plus ~5 min to
+load. With the S2T silence rates (40 % / 84 % / 31 %) that is roughly 1.5 h for LlamaQ, 2 h for
+TriviaQA and 10 h for WebQ on one GPU — shard WebQ. These are estimates from 5 items.
+
+## 7. Not done
 
 SALMon and StoryCloze were **not** run on the stage-2 model. Neither were Full-Duplex-Bench v1/v1.5.

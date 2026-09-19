@@ -1,0 +1,41 @@
+# ADDED BY US -- S2S arm of the stage-2 FULL-DUPLEX TASTE-S SLM (9B). Separate file and model name;
+# taste_slm_fd.yaml (S2T) and its results in res/taste-slm-fd-9b-stage2/ are untouched.
+#
+# Same checkpoint, author code, tokenizer and decoding as taste-slm-fd-9b-stage2, plus:
+#   synthesize_audio: true  -> author's agent_audio.wav, leading/trailing silence cut exactly,
+#                              returned under `audio` (see taste_slm_fd.py docstring)
+#   seed: 42                -> per-sample sha256(seed, sample_id); decoding is sampled, so without
+#                              it no run is reproducible
+#
+# One generation, two scores (no second generation, so S2T and S2S see the SAME answer):
+#   1. --task s2s-aqa-local-allow-empty                           -> S2S
+#   2. --task loose-aqa --inf_file <run 1's .jsonl>               -> S2T of the same generation
+# The allow-empty task scores "never spoke" as wrong inside the denominator, as S2T does.
+#
+# ⚠️ Expect S2S ≈ 0. STAGE2_9B_EVALUATION.md §14: this checkpoint's generated taste codes do not
+# carry the generated text (CTC of its audio recovers 1-5 tokens), while teacher-forced synthesis
+# through the same path is intelligible. That is a model defect, not an evaluation artifact.
+#
+# DEVICE: unlike taste_slm_fd.yaml, this uses cuda:0 inside CUDA_VISIBLE_DEVICES=<physical gpu>, so
+# the isolated whisper subprocess (which takes its device from CUDA_VISIBLE_DEVICES) lands on the
+# same card. The author's main() overwrites that variable, but this adapter never calls main().
+#
+# Per-sample outputs go to <trace_dir>/<dataset>/<split>/<id>/ (derived from the question's path).
+taste-slm-fd-9b-stage2-s2s:
+  class: audio_evals.models.taste_slm_fd.TasteSLMFullDuplex
+  args:
+    fd_eval_root: ${TASTE_S_FD_REPO}/train_slm/evaluation/full_duplex_eval
+    ckpt_dir: ${TASTE_S_STAGE2_CKPT}/valid_best
+    recipe: ${TASTE_S_STAGE2_CKPT}/model_recipe.yaml
+    taste_s_tokenizer_dir: ${TASTE_S_SLM_ROOT}/pretrained9b/taste_s_tokenizer
+    qwen_model_dir: ${QWEN35_9B}
+    trace_dir: ${TASTE_S_STAGE2_OUT}/uea_traces_s2s
+    device: cuda:0
+    # author defaults, unchanged (generate.py CLI defaults) -- also used by the unit decoder
+    temperature: 0.8
+    top_k: 25
+    top_p: 1.0
+    max_words_per_block: 40
+    max_extra_silent_blocks: 15
+    synthesize_audio: true
+    seed: 42

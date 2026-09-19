@@ -1,0 +1,21 @@
+# ADDED BY US -- whisper-large-v3 from a LOCAL directory, so nothing is downloaded.
+# Upstream registry/model/whisper.yaml is untouched; it uses path `openai/whisper-large-v3`, and
+# WhisperModel.__init__ downloads when a path starting with "openai/" does not exist on disk.
+#
+# The weights here are byte-identical to the HF snapshot openai/whisper-large-v3 @ 06f233fe
+# (model.safetensors sha256 starts a8e94b85976e5864ba3e, verified against
+# ~/.cache/huggingface/hub/models--openai--whisper-large-v3). We point at /data rather than that
+# cache because /data is the 19 TB array while the HF default cache sits on the 193 GB root disk.
+#
+# ⚠️ This runs in an ISOLATED venv (envs/whisper) built from audio_evals/lib/whisper/requirements.txt
+# -- torchaudio==2.5.1 + transformers==4.49.0, which cannot share our main venv (torch 2.13,
+# transformers 5.x). The env is created once and marked; see audio_evals/env_setup.py::ensure_env.
+whisper-local:
+  class: audio_evals.models.whisper.WhisperModel
+  args:
+    # NOTE: an absolute path, not ${VAR}. Unlike our own adapters, UEA's registry loader does no
+    # environment expansion, so a placeholder here would be passed to WhisperModel verbatim.
+    path: /data/pretrained_models/whisper/whisper-large-v3
+    env_path: envs/whisper
+    requirements_path: audio_evals/lib/whisper/requirements.txt
+    sample_params: {}

@@ -1,0 +1,51 @@
+# ADDED BY US -- S2S (speech-to-speech) arm of the stage-1 TASTE-S SLMs.
+#
+# Same rollout as the S2T entries; the difference is that the answer's TASTE frames are synthesised
+# to a waveform and the path is returned under `audio`, which UEA's `extract_audio` reads. The S2T
+# entries (taste_slm.yaml / taste_slm_datav2.yaml / taste_slm_4b_kl.yaml / taste_slm_9b_v2.yaml)
+# and every one of their results in res/ are untouched.
+#
+# Run with the S2S task so the transcription step is in the chain:
+#   python audio_evals/main.py --dataset llama-questions-s2t --model taste-slm-9b-v2-s2s \
+#          --task s2s-aqa-local --use_model_pool off
+# (`--dataset ...-s2t` only selects the data; --task decides the post-processing. Keeping the same
+#  dataset entry as the S2T runs guarantees an identical item set and denominator.)
+#
+# The profiles differ from their S2T twins in exactly two fields: tail_steps 0 -> -1 (flush the
+# speech delay, without which the audio is truncated) and retain_synthesis_inputs: true. The answer
+# TEXT is unchanged at the same seed, so S2S and S2T are directly comparable.
+#
+# The answer is spoken in the QUESTIONER's voice (campplus over the question audio): the checkpoint
+# has no agent voice and these benchmarks ship no reference speaker.
+
+taste-slm-9b-v2-s2s:
+  class: audio_evals.models.taste_slm.TasteSLM
+  args:
+    slm_root: ${TASTE_S_SLM_ROOT}
+    config_path: ${TASTE_S_SLM_ROOT}/eval/configs/tastes_slm_9b_v2_s2s.yaml
+    audio_out_dir: ${TASTE_S_S2S_OUT}/9b_v2
+    campplus_dir: ${TASTE_S_SLM_ROOT}/pretrained/cosyvoice
+
+taste-slm-4b-datav2-s2s:
+  class: audio_evals.models.taste_slm.TasteSLM
+  args:
+    slm_root: ${TASTE_S_SLM_ROOT}
+    config_path: ${TASTE_S_SLM_ROOT}/eval/configs/tastes_slm_4b_datav2_s2s.yaml
+    audio_out_dir: ${TASTE_S_S2S_OUT}/4b_datav2
+    campplus_dir: ${TASTE_S_SLM_ROOT}/pretrained/cosyvoice
+
+taste-slm-4b-kl-s2s:
+  class: audio_evals.models.taste_slm.TasteSLM
+  args:
+    slm_root: ${TASTE_S_SLM_ROOT}
+    config_path: ${TASTE_S_SLM_ROOT}/eval/configs/tastes_slm_4b_kl_s2s.yaml
+    audio_out_dir: ${TASTE_S_S2S_OUT}/4b_kl
+    campplus_dir: ${TASTE_S_SLM_ROOT}/pretrained/cosyvoice
+
+taste-slm-9b-d1-s2s:
+  class: audio_evals.models.taste_slm.TasteSLM
+  args:
+    slm_root: ${TASTE_S_SLM_ROOT}
+    config_path: ${TASTE_S_SLM_ROOT}/eval/configs/tastes_slm_9b_d1_s2s.yaml
+    audio_out_dir: ${TASTE_S_S2S_OUT}/9b_d1
+    campplus_dir: ${TASTE_S_SLM_ROOT}/pretrained/cosyvoice
