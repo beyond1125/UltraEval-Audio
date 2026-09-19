@@ -1,0 +1,21 @@
+--- a/audio_evals/isolate.py
++++ b/audio_evals/isolate.py
+@@ -85,7 +85,18 @@
+                 )
+ 
+             # 构建完整命令
++            # PATCH-003 (upstream compat): unset PYTHONPATH inside the isolated env.
++            # The point of @isolated is that this subprocess has its OWN interpreter and its own
++            # dependency set (here python3.10 + transformers==4.49.0). Popen inherits the parent's
++            # environment, so a PYTHONPATH the caller needs for the MAIN venv is also placed ahead
++            # of this env's site-packages. Any C-extension built for the parent's Python then wins
++            # and fails to load -- e.g. a python3.12 `regex` on the path makes
++            # transformers.models.whisper raise
++            #   cannot import name '_regex' from partially initialized module 'regex'
++            # before the model is ever touched. The script is invoked by absolute path, so nothing
++            # here relies on PYTHONPATH.
+             command = (
++                f"unset PYTHONPATH && "
+                 f"source {env_path}/bin/activate && "
+                 f"{cuda_env}"
+                 f"export LD_LIBRARY_PATH={lib_path}:{cuda_runtime_lib}:{python_lib_dir}:$LD_LIBRARY_PATH && "
