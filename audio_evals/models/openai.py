@@ -47,6 +47,12 @@ class GPT(APIModel):
                 {"role": item["role"], "content": item["contents"][0]["value"]}
             )
 
+        # PATCH-004: the AlpacaEval evaluators (evaluator/alpaca_eval.py) pass `maxTokens`, which
+        # every openai>=1.0 client rejects client-side (TypeError: unexpected keyword argument), so
+        # every judged item failed. Pass it under the SDK's name; the value is unchanged.
+        if "maxTokens" in kwargs:
+            kwargs["max_tokens"] = kwargs.pop("maxTokens")
+
         response = self.client.chat.completions.create(
             model=self.model_name, messages=messages, **kwargs
         )
