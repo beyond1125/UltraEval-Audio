@@ -1,0 +1,28 @@
+# ADDED BY US -- TURN-BASED TASTE-S SLM (4B), GREEDY DECODING. Separate file and model name;
+# taste_slm_tb.yaml (sampled, temp 0.8 / top_k 25) and its results in res/taste-slm-tb-4b/ are
+# untouched.
+#
+# Why this exists: the sampled entry copied run.sh's `generate` defaults, which are for generating
+# DeepDialogue conversational turns. Spoken QA wants the single best answer, every stage-1 row in
+# report.md is greedy, and Jinhui's own turn-based QA table is greedy. This entry is identical to
+# taste-slm-tb-4b except `greedy: true` (which also makes the speech groups argmax, as in the
+# author's generate_turn) and its own trace_dir. Result: LlamaQ 87/300 = 29.00 %, vs Jinhui's
+# greedy 86/300 = 28.67 % and our sampled 55/300 = 18.33 %.
+taste-slm-tb-4b-greedy:
+  class: audio_evals.models.taste_slm_tb.TasteSLMTurnBased
+  args:
+    tb_eval_root: ${TASTE_S_TB_EVAL}
+    ckpt_dir: ${TASTE_S_TB_CKPT}/valid_best
+    taste_s_tokenizer_dir: ${TASTE_S_BUNDLES}/tokenizer_fsq_ourdata
+    qwen_model_dir: ${QWEN35_4B}
+    trace_dir: ${TASTE_S_TB_OUT}/uea_traces_greedy
+    device: cuda:0
+    temperature: 0.8   # unused when greedy
+    top_k: 25          # unused when greedy
+    top_p: 1.0         # unused when greedy
+    greedy: true
+    max_words: 80
+    eob_logit_bias: 0.0
+    input_resampler: torchaudio
+    quantize_input: true
+    seed: 42           # still recorded per sample; greedy decoding does not consume it

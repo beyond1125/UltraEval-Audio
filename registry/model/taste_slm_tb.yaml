@@ -1,0 +1,47 @@
+# ADDED BY US -- TURN-BASED TASTE-S SLM (4B). Separate file; taste_slm.yaml (stage-1),
+# taste_slm_datav2.yaml, taste_slm_4b_kl.yaml, taste_slm_9b_v2.yaml and taste_slm_fd.yaml
+# (stage-2 full-duplex) are untouched, as is every one of their results in res/.
+#
+# Checkpoint : JimHue/TASTE-S-SLM @ b863fe9827ed0408a2376fb37038e9ddbe4fd12f
+#              slm/turnbased_4b_fsdp_eob_w1_protected/valid_best   (step 1314)
+#              19,373,134,284 B. val/eob_recall 0.955, eob_precision 0.607 -- unlike stage-1,
+#              this model's stop token IS trained.
+# Author code: Jensen-JinhuiLiu/TASTE-S_Full_duplex_SLM @ 5cbcca7,
+#              train_slm/evaluation/turnbased_eval
+# Backbone   : Qwen/Qwen3.5-4B          (named by the checkpoint's own training_config.yaml)
+# Tokenizer  : fsq_ourdata/valid_best   (same frozen FSQ tokenizer as the stage-1 4B models)
+#
+# `recipe` is omitted: load_models defaults it to <ckpt_dir>/../training_config.yaml, which is
+# exactly how the checkpoint is published. The loader disables the frozen KL teacher itself
+# (this checkpoint was trained with text_kl weight 0.5) -- KL is training-only.
+#
+# ⚠️ Device comes from `device:` here and is passed straight to load_models. Do NOT use the
+# CUDA_VISIBLE_DEVICES=N idiom: generate.py:226 and rollout.py:223 OVERWRITE that variable with
+# str(--gpu), so an outer value would be discarded. This adapter never calls their main(), so it
+# is unaffected -- but set the GPU here, not in the environment.
+taste-slm-tb-4b:
+  class: audio_evals.models.taste_slm_tb.TasteSLMTurnBased
+  args:
+    tb_eval_root: ${TASTE_S_TB_EVAL}
+    ckpt_dir: ${TASTE_S_TB_CKPT}/valid_best
+    taste_s_tokenizer_dir: ${TASTE_S_BUNDLES}/tokenizer_fsq_ourdata
+    qwen_model_dir: ${QWEN35_4B}
+    trace_dir: ${TASTE_S_TB_OUT}/uea_traces
+    device: cuda:0
+    # the author's own EVALUATION defaults (run.sh), unchanged, and identical to the values the
+    # full-duplex adapter uses so the two models are compared under the same decoding.
+    # (cmd.sh's --greedy is a deterministic smoke test, not the eval default.)
+    temperature: 0.8
+    top_k: 25
+    top_p: 1.0
+    greedy: false
+    max_words: 80
+    # calibration knob the author exposes for sweeps; moving it would tune stopping behaviour
+    # against the benchmark
+    eob_logit_bias: 0.0
+    # DeepDialogue turn-based data contract -- NOT the same front end as full-duplex
+    input_resampler: torchaudio
+    quantize_input: true
+    # sampling is the default, so seed per sample from sha256(seed, sample_id): reproducible and
+    # independent of how samples are scheduled across shards
+    seed: 42
