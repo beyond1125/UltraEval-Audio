@@ -185,6 +185,15 @@ itself): **~25 s** for an item where the model spoke, **~3 s** for a silent one,
 load. With the S2T silence rates (40 % / 84 % / 31 %) that is roughly 1.5 h for LlamaQ, 2 h for
 TriviaQA and 10 h for WebQ on one GPU — shard WebQ. These are estimates from 5 items.
 
-## 7. Not done
+## 7. AlpacaEval
+
+The S2S entry above also runs AlpacaEval (open-ended, GPT-judged) with no changes — generation is
+`tools/run_alpaca_eval.sh generate <gpu> taste-slm-fd-9b-stage2-s2s`, then `judge`. Setup, the
+alignment with upstream UEA and how to read the scores: `README_TASTE_S.md` §AlpacaEval. Long
+open-ended answers make the trailing-block cap (`max_extra_silent_blocks: 15`, 12 s after the
+question) bind more often than on QA; it stays at the author's default, so report the truncation
+rate with the score.
+
+## 8. Not done
 
 SALMon and StoryCloze were **not** run on the stage-2 model. Neither were Full-Duplex-Bench v1/v1.5.

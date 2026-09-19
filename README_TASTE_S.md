@@ -6,8 +6,9 @@ produced against that commit. Upstream's LICENSE is unchanged.
 
 The evaluation chain itself is **entirely upstream**: task `loose-aqa`, prompt `direct-aqa`,
 `extract_text`, evaluator `qa-exist-match`, aggregation `acc`. We add model adapters, dataset
-views, a local-whisper S2S chain (§ [S2S](#s2s--speech-in-speech-out)), and three compatibility
-fixes. No scoring code is touched.
+views, a local-whisper S2S chain (§ [S2S](#s2s--speech-in-speech-out)), AlpacaEval wiring
+(§ [AlpacaEval](#alpacaeval--open-ended-gpt-judged)), and four compatibility fixes. No scoring code is
+touched.
 
 ## Files
 
@@ -18,6 +19,7 @@ fixes. No scoring code is touched.
 | `audio_evals/utils.py` | `patches/PATCH-001-pandas-applymap.diff` | pandas 3.0 removed `DataFrame.applymap`. Excel export only, runs **after** scoring. |
 | `registry/dataset/webQ.yaml` | `patches/PATCH-002-webq-f_name.diff` | `f_name:` → `name:`; the HF loader takes `name`. Without it SpeechWebQuestions cannot load. |
 | `audio_evals/isolate.py` | `patches/PATCH-003-isolate-pythonpath.diff` | `@isolated` models (whisper) run in their own venv, but `Popen` inherited the parent's `PYTHONPATH`; an overlay built for another python then broke `transformers.models.whisper` (`cannot import name '_regex'`). The isolated command now unsets `PYTHONPATH`. |
+| `audio_evals/models/openai.py` | `patches/PATCH-004-openai-maxtokens.diff` | The AlpacaEval evaluators call the judge with `maxTokens=…`, which every `openai>=1.0` client (upstream requires `>=1.0.0`) rejects client-side — `TypeError: unexpected keyword argument 'maxTokens'` — so every judged item failed. `GPT._inference` now passes it as `max_tokens`; the value is unchanged. Upstream `main` still has the bug. |
 
 In this branch the patched files are simply edited in place; `patches/` holds the same changes as
 diffs, for applying to a clean upstream checkout.
@@ -62,6 +64,8 @@ Verified: WebQ shard sizes `[407, 407, 406, 406, 406]` = 2032, no overlap.
 `taste_slm_4b_kl.yaml` (KL 4B) · `taste_slm_9b_v2.yaml` (re-uploaded 9B, 9B KL) ·
 `taste_slm_fd.yaml` (stage-2 full-duplex) · `taste_slm_tb.yaml` (turn-based, sampled) ·
 `taste_slm_tb_greedy.yaml` (turn-based, greedy).
+
+AlpacaEval: `registry/model/taste_slm_alpaca.yaml` (stage-1) · `tools/run_alpaca_eval.sh`.
 
 S2S: `registry/model/taste_slm_s2s.yaml` (stage-1) · `taste_slm_fd_s2s.yaml` (full-duplex) ·
 `whisper_local.yaml` · `registry/process/speech_local.yaml` · `registry/eval_task/aqa_s2s_local.yaml`
@@ -225,6 +229,58 @@ raising the cap: a higher cap only produces longer repetition.
 ### Full-duplex
 
 See `README_FULL_DUPLEX.md` §S2S. Entry `taste-slm-fd-9b-stage2-s2s`; same launcher.
+
+## AlpacaEval — open-ended, GPT-judged
+
+198 spoken instructions (`speech-chatbot-alpaca-eval`, from AlpacaEval's `helpful_base` etc.), each
+answer rated 1–10 by an LLM judge. **Everything that scores is upstream UEA:**
+
+| | upstream | here |
+|---|---|---|
+| dataset / prompt | `speech-chatbot-alpaca-eval` / `direct-aqa` | same |
+| S2T task | `glm-alpaca-eval-s2t`, `post_process: []` | same task, `--post_process extract_text` |
+| S2S task | `glm-alpaca-eval`: `extract_audio` → `speech2text` | same task, `speech2text-local-allow-empty` |
+| judge | `chatbot_eval` → `gpt4o-mini` (`gpt-4o-mini`), temperature 0, parses `[[n]]` | same (needs PATCH-004 to run at all) |
+| aggregation | `geval` = mean of the 1–10 scores, printed **×100** (`geval(%): 412` = 4.12/10) | same |
+
+The two departures are both forced by our adapters returning JSON with `text` **and** `audio`:
+upstream's S2T task assumes a model that returns plain text, so without `extract_text` the judge
+would be handed raw JSON; and the local whisper is byte-identical to upstream's
+`openai/whisper-large-v3`, with `""` (a full-duplex model that never spoke) mapped to an empty
+answer — which the judge then rates, exactly as upstream would rate an empty response.
+
+**Models.** Stage-1: `taste-slm-{9b-v2,4b-datav2,4b-kl,9b-d1}-alpaca-s2s`, whose profiles differ from
+the S2S ones only in `max_answer_tokens: 128` (64 cuts most open-ended answers; 128 is the repo's
+existing AlpacaEval budget; UEA itself sets none). Full-duplex: `taste-slm-fd-9b-stage2-s2s`
+unchanged — the author's defaults are not benchmark-specific.
+
+**Two phases**, so the free GPU part and the paid API part are independent:
+
+```bash
+# 1. generate (GPU, no API) -> res/<model>/speech-chatbot-alpaca-eval/<ts>_gen.jsonl
+tools/run_alpaca_eval.sh generate 0 taste-slm-9b-v2-alpaca-s2s
+tools/run_alpaca_eval.sh generate 1 taste-slm-fd-9b-stage2-s2s     # full-duplex env: README_FULL_DUPLEX.md
+
+# 2. judge (API; whisper on the GPU) -> <ts>_s2t.jsonl and <ts>_s2s.jsonl
+export OPENAI_API_KEY=...
+tools/run_alpaca_eval.sh judge 0 taste-slm-9b-v2-alpaca-s2s \
+    res/taste-slm-9b-v2-alpaca-s2s/speech-chatbot-alpaca-eval/<ts>_gen.jsonl
+```
+
+Generation writes the answers with evaluator/agg `dump`; judging replays those saved records with
+`--inf_file`, so S2T and S2S judge the **same** answers and nothing is generated twice. Pass the same
+`--limit` to both phases if you use one. Cost: 198 × 2 judge calls per model (S2T + S2S) on `gpt-4o-mini`,
+each a short prompt (template + instruction + answer) and a short rationale (capped at 2048 tokens).
+
+Verified without spending credit: the judge phase was run end to end on hand-built records with the
+GPT call stubbed out, and the stub logged exactly what `gpt-4o-mini` would receive — the dataset's
+`instruction` as `[Question]`, our text (S2T) or whisper transcript (S2S) as the answer, an empty
+answer for the never-spoke item, `temperature 0`, `max_tokens 2048`; 0 % fail rate on both arms.
+
+Reading the scores: stage-1 answers run to the 128-token cap and usually repeat themselves; that is
+the model's behaviour, not a harness artifact, and the judge sees it as-is. Report full-duplex
+scores with the never-spoke rate next to them — an empty answer is still judged and pulls the mean
+down, so the score alone does not separate "answered badly" from "did not answer".
 
 ## Checking coverage
 

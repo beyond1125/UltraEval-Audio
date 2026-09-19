@@ -1,0 +1,46 @@
+# ADDED BY US -- stage-1 TASTE-S SLMs on AlpacaEval (speech-chatbot-alpaca-eval), S2T and S2S.
+#
+# Same adapter and S2S arm as taste_slm_s2s.yaml; the profiles (eval/configs/*_alpaca_s2s.yaml in
+# IntelliGen) differ from the S2S ones only in max_answer_tokens 64 -> 128, since AlpacaEval is
+# open-ended. Each output carries both `text` and `audio`, so ONE generation is scored twice with
+# UEA's own tasks, judge and aggregation -- see README_TASTE_S.md §AlpacaEval and
+# tools/run_alpaca_eval.sh:
+#   S2T: glm-alpaca-eval-s2t  (+ --post_process extract_text: these adapters return JSON)
+#   S2S: glm-alpaca-eval      (speech2text -> the byte-identical local whisper)
+# Judge: upstream chatbot_eval (gpt4o-mini, 1-10), agg geval. Needs OPENAI_API_KEY; the generation
+# phase does not.
+#
+# The full-duplex model needs no AlpacaEval entry: taste-slm-fd-9b-stage2-s2s already runs with the
+# author's own defaults, which are not benchmark-specific.
+
+taste-slm-9b-v2-alpaca-s2s:
+  class: audio_evals.models.taste_slm.TasteSLM
+  args:
+    slm_root: ${TASTE_S_SLM_ROOT}
+    config_path: ${TASTE_S_SLM_ROOT}/eval/configs/tastes_slm_9b_v2_alpaca_s2s.yaml
+    audio_out_dir: ${TASTE_S_S2S_OUT}/9b_v2_alpaca
+    campplus_dir: ${TASTE_S_SLM_ROOT}/pretrained/cosyvoice
+
+taste-slm-4b-datav2-alpaca-s2s:
+  class: audio_evals.models.taste_slm.TasteSLM
+  args:
+    slm_root: ${TASTE_S_SLM_ROOT}
+    config_path: ${TASTE_S_SLM_ROOT}/eval/configs/tastes_slm_4b_datav2_alpaca_s2s.yaml
+    audio_out_dir: ${TASTE_S_S2S_OUT}/4b_datav2_alpaca
+    campplus_dir: ${TASTE_S_SLM_ROOT}/pretrained/cosyvoice
+
+taste-slm-4b-kl-alpaca-s2s:
+  class: audio_evals.models.taste_slm.TasteSLM
+  args:
+    slm_root: ${TASTE_S_SLM_ROOT}
+    config_path: ${TASTE_S_SLM_ROOT}/eval/configs/tastes_slm_4b_kl_alpaca_s2s.yaml
+    audio_out_dir: ${TASTE_S_S2S_OUT}/4b_kl_alpaca
+    campplus_dir: ${TASTE_S_SLM_ROOT}/pretrained/cosyvoice
+
+taste-slm-9b-d1-alpaca-s2s:
+  class: audio_evals.models.taste_slm.TasteSLM
+  args:
+    slm_root: ${TASTE_S_SLM_ROOT}
+    config_path: ${TASTE_S_SLM_ROOT}/eval/configs/tastes_slm_9b_d1_alpaca_s2s.yaml
+    audio_out_dir: ${TASTE_S_S2S_OUT}/9b_d1_alpaca
+    campplus_dir: ${TASTE_S_SLM_ROOT}/pretrained/cosyvoice
