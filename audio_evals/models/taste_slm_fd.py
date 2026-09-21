@@ -95,7 +95,7 @@ from audio_evals.models.model import OfflineModel
 
 logger = logging.getLogger(__name__)
 
-ADAPTER_VERSION = "uea_taste_slm_fd_adapter_v2"   # v2: optional S2S arm + per-sample seed
+ADAPTER_VERSION = "uea_taste_slm_fd_adapter_v3"   # v3: configurable tokenizer frontend + paired 4B FD profiles
 PROTOCOL_VERSION = "fullduplex_stage2_listen_then_speak_v1"
 
 # See taste_slm.py: transformers 5.x lazy submodule resolution is not thread-safe; warm it on the
@@ -228,6 +228,13 @@ class TasteSLMFullDuplex(OfflineModel):
         top_p: float = 1.0,
         max_words_per_block: int = 40,
         max_extra_silent_blocks: int = 15,
+        end_after_consecutive_silent_blocks: int = 1,
+        spk_logit_threshold: float = 0.0,
+        max_tail_units: int = 500,
+        input_resampler: str = "librosa",
+        input_quantization: str = "on",
+        code_revision: str = "728867b407a539b8a3d3229f83c6a722aa2f7473",
+        protocol_version: str = PROTOCOL_VERSION,
         synthesize_audio: bool = False,
         seed: int = None,
         sample_params: Dict[str, any] = None,
@@ -253,10 +260,36 @@ class TasteSLMFullDuplex(OfflineModel):
         self.taste_s_tokenizer_dir = _x(taste_s_tokenizer_dir)
         self.qwen_model_dir = _x(qwen_model_dir)
         self.trace_dir = _x(trace_dir)
+        self.code_revision = str(code_revision)
+        self.protocol_version = str(protocol_version)
+        # YAML registry values are literal strings.  Expand these scalar knobs
+        # as well as paths; if a launcher predates either environment variable,
+        # retain the constructor default rather than attempting int/float on an
+        # unresolved ``${...}`` placeholder.
+        def _scalar_env(value, default):
+            if isinstance(value, str):
+                value = _x(value)
+                if "$" in value:
+                    return default
+            return value
+
+        end_after_consecutive_silent_blocks = _scalar_env(
+            end_after_consecutive_silent_blocks, 1
+        )
+        spk_logit_threshold = _scalar_env(spk_logit_threshold, 0.0)
+        if input_resampler not in ("librosa", "torchaudio"):
+            raise ValueError(f"unsupported input_resampler={input_resampler!r}")
+        if input_quantization not in ("on", "off"):
+            raise ValueError(f"unsupported input_quantization={input_quantization!r}")
         self.gen_kwargs = dict(
             temperature=temperature, top_k=top_k, top_p=top_p,
             max_words_per_block=max_words_per_block,
             max_extra_silent_blocks=max_extra_silent_blocks,
+            end_after_consecutive_silent_blocks=int(end_after_consecutive_silent_blocks),
+            spk_logit_threshold=float(spk_logit_threshold),
+            max_tail_units=max_tail_units,
+            input_resampler=input_resampler,
+            input_quantization=input_quantization,
         )
         self.synthesize_audio = bool(synthesize_audio)
         self.seed = None if seed is None else int(seed)
@@ -321,9 +354,10 @@ class TasteSLMFullDuplex(OfflineModel):
             synth = (_spoken_region(out_dir, self._generate.CHUNK_SECONDS)
                      if self.synthesize_audio else None)
 
-        # Predetermined extraction: every spoken block's text, in block order.
+        # Predetermined extraction: concatenate raw IDs from every speaking block, then
+        # decode ONCE. Per-block decode can change whitespace/subword boundaries at 0.8 s cuts.
         trace_fp = os.path.join(out_dir, "trace.jsonl")
-        parts, spoke_blocks, max_logit = [], 0, None
+        all_text_ids, spoke_blocks, max_logit, hit_unit_tail_cap = [], 0, None, False
         with open(trace_fp) as f:
             for line in f:
                 r = json.loads(line)
@@ -332,9 +366,11 @@ class TasteSLMFullDuplex(OfflineModel):
                     max_logit = lg if max_logit is None else max(max_logit, lg)
                 if r.get("speaking"):
                     spoke_blocks += 1
-                    if r.get("text"):
-                        parts.append(r["text"])
-        text = "".join(parts).strip()
+                    all_text_ids.extend(r.get("text_ids", ()))
+                hit_unit_tail_cap = hit_unit_tail_cap or any(
+                    e.get("action") == "tail_cap" for e in r.get("decoder_events", ()))
+        raw_output = models.text_tok.decode(all_text_ids, skip_special_tokens=True)
+        text = raw_output.strip()
 
         out = {
             # `text` is what extract_text takes. Always a string, never None.
@@ -344,10 +380,10 @@ class TasteSLMFullDuplex(OfflineModel):
             "empty_response": text == "",
             "sample_id": sample_id,
             "audio_path": audio_path,
-            "raw_output": "".join(parts),
+            "raw_output": raw_output,
             "adapter_version": ADAPTER_VERSION,
-            "protocol_version": PROTOCOL_VERSION,
-            "author_code_commit": "728867b407a539b8a3d3229f83c6a722aa2f7473",
+            "protocol_version": self.protocol_version,
+            "author_code_commit": self.code_revision,
             "modality": ("S2T_native_text_stream+S2S_agent_audio" if synth is not None
                          else "S2T_native_text_stream"),
             "seed": seed,
@@ -356,6 +392,9 @@ class TasteSLMFullDuplex(OfflineModel):
             "spoke_blocks": spoke_blocks,
             "n_words": summary.get("n_words"),
             "max_spk_logit": max_logit,
+            "hit_unit_tail_cap": hit_unit_tail_cap,
+            "input_audio_preprocessing": summary.get("input_audio_preprocessing"),
+            "agent_voice_mode": "zero_embedding",
             "trace_path": trace_fp,
             "decoding": dict(self.gen_kwargs),
             # S2S: `audio` is what extract_audio reads ("" = never spoke). Absent on the S2T path.

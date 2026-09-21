@@ -28,3 +28,28 @@ taste-slm-fd-9b-stage2:
     top_p: 1.0
     max_words_per_block: 40
     max_extra_silent_blocks: 15
+
+
+# Current 4B full-duplex checkpoint. This S2T entry is useful for fast native-text debugging.
+# The paired formal report is produced by the matching -s2s entry and replayed from its records.
+taste-slm-fd-4b-tb-seamless-s2t:
+  class: audio_evals.models.taste_slm_fd.TasteSLMFullDuplex
+  args:
+    fd_eval_root: ${TASTE_S_FD_REPO}/train_slm/evaluation/full_duplex_eval
+    ckpt_dir: ${TASTE_S_FD_CKPT}
+    recipe: ${TASTE_S_FD_RECIPE}
+    taste_s_tokenizer_dir: ${TASTE_S_FD_TOKENIZER}
+    qwen_model_dir: ${TASTE_S_FD_QWEN}
+    trace_dir: ${TASTE_S_FD_OUT}/uea_traces_s2t
+    device: cuda:0
+    temperature: 0.8
+    top_k: 25
+    top_p: 1.0
+    max_words_per_block: 12
+    max_extra_silent_blocks: 15
+    max_tail_units: 500
+    input_resampler: torchaudio
+    input_quantization: "on"
+    code_revision: local_worktree
+    protocol_version: fullduplex_qa_listen_then_speak_v2
+    seed: 42

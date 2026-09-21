@@ -39,3 +39,33 @@ taste-slm-fd-9b-stage2-s2s:
     max_extra_silent_blocks: 15
     synthesize_audio: true
     seed: 42
+
+
+# Canonical paired S2S/S2T evaluation entry for the current 4B full-duplex model.
+# Run S2S once, then use --inf_file to replay its identical inference records as S2T.
+taste-slm-fd-4b-tb-seamless-s2s:
+  class: audio_evals.models.taste_slm_fd.TasteSLMFullDuplex
+  args:
+    fd_eval_root: ${TASTE_S_FD_REPO}/train_slm/evaluation/full_duplex_eval
+    ckpt_dir: ${TASTE_S_FD_CKPT}
+    recipe: ${TASTE_S_FD_RECIPE}
+    taste_s_tokenizer_dir: ${TASTE_S_FD_TOKENIZER}
+    qwen_model_dir: ${TASTE_S_FD_QWEN}
+    trace_dir: ${TASTE_S_FD_OUT}/uea_traces_s2s
+    # CUDA_VISIBLE_DEVICES is set by run_fullduplex_s2s.sh; both model and Whisper see cuda:0.
+    device: cuda:0
+    temperature: 0.8
+    top_k: 25
+    top_p: 1.0
+    max_words_per_block: 12
+    max_extra_silent_blocks: 15
+    # Passed by full_duplex_eval/run_ultraeval_s2s.sh; default keeps p(speak) > 0.5.
+    spk_logit_threshold: ${TASTE_S_FD_SPK_LOGIT_THRESHOLD}
+    end_after_consecutive_silent_blocks: ${TASTE_S_FD_END_AFTER_CONSECUTIVE_SILENT_BLOCKS}
+    max_tail_units: 500
+    input_resampler: torchaudio
+    input_quantization: "on"
+    code_revision: local_worktree
+    protocol_version: fullduplex_qa_listen_then_speak_v2
+    synthesize_audio: true
+    seed: 42
