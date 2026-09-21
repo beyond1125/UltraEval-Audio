@@ -50,6 +50,11 @@ class EvalTask:
         if "eval_info" in kwargs and "inference" in kwargs["eval_info"]:
             output = kwargs["eval_info"]["inference"]["content"]
         else:
+            if self.predictor is None:
+                raise RuntimeError(
+                    "replay-only evaluation has no saved inference for this sample; "
+                    "repair or regenerate the S2S source JSONL first"
+                )
             output = self.predictor.inference(prompt)
         self.recorder.add({"type": "inference", "id": idx, "data": {"content": output}})
 

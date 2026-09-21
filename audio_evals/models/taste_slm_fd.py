@@ -171,7 +171,14 @@ def _seed_everything(seed: int):
 
 
 def _spoken_region(out_dir: str, chunk_seconds: float) -> Dict[str, any]:
-    """Cut the leading/trailing silent blocks off the author's `agent_audio.wav`; see docstring.
+    """Cut actual zero-valued waveform padding off ``agent_audio.wav``.
+
+    ``chunk_seconds`` is retained for the adapter's public call signature, but
+    must not be used to infer waveform boundaries: a vocoder span's rendered
+    duration is not constrained to its SLM block budget, and generation writes
+    audio only through the final speaking block.  In particular, tail-supervised
+    checkpoints may have several trace-level trailing silent blocks which are
+    deliberately absent from the rendered waveform.
 
     Returns the fields merged into the output: `audio` (path, or "" if the model never spoke) and
     `audio_synthesis` (provenance).
@@ -189,23 +196,28 @@ def _spoken_region(out_dir: str, chunk_seconds: float) -> Dict[str, any]:
         return {"audio": "", "audio_synthesis": meta}
 
     wav, sr = sf.read(full_fp, dtype="float32")
-    first = speaking.index(True)
-    last = len(speaking) - 1 - speaking[::-1].index(True)
-    lead = int(round(first * chunk_seconds * sr)) if first else 0
-    trail_blocks = len(speaking) - 1 - last
-    trail = int(round(trail_blocks * chunk_seconds * sr)) if trail_blocks else 0
-    if lead + trail >= len(wav):
-        raise RuntimeError(f"{full_fp}: silence cut {lead}+{trail} >= {len(wav)} samples")
-    # the cut must be pure zeros, i.e. exactly the author's inserted silence runs
-    if np.any(wav[:lead]) or (trail and np.any(wav[len(wav) - trail:])):
-        raise RuntimeError(f"{full_fp}: non-zero samples inside the leading/trailing silence runs; "
-                           f"the block->sample arithmetic no longer matches assemble_agent_audio")
-    spoken = wav[lead:len(wav) - trail]
+    # ``assemble_agent_audio_from_units`` constructs block gaps as literal
+    # zeros. Trim only those samples, rather than assuming block time equals
+    # vocoder time. The per-sample reduction also keeps this correct for a
+    # future multi-channel renderer.
+    nonzero = np.any(wav != 0, axis=tuple(range(1, wav.ndim))) if wav.ndim > 1 else wav != 0
+    nonzero_indices = np.flatnonzero(nonzero)
+    if not len(nonzero_indices):
+        meta.update(empty=True, asr_input=None, rendered_empty=True,
+                    sample_rate=sr, full_sec=round(len(wav) / sr, 3))
+        return {"audio": "", "audio_synthesis": meta}
+    lead = int(nonzero_indices[0])
+    end = int(nonzero_indices[-1]) + 1
+    trail = len(wav) - end
+    spoken = wav[lead:end]
     asr_fp = os.path.join(out_dir, "agent_audio_spoken.wav")
     sf.write(asr_fp, spoken, sr)
+    first = speaking.index(True)
+    last = len(speaking) - 1 - speaking[::-1].index(True)
     meta.update(empty=False, asr_input=asr_fp, sample_rate=sr,
                 first_spoken_block=first, last_spoken_block=last,
                 full_sec=round(len(wav) / sr, 3), asr_sec=round(len(spoken) / sr, 3),
+                leading_zero_samples=lead, trailing_zero_samples=trail,
                 # drift = rendered speech longer/shorter than its block budget (§12.2)
                 drift_sec=round(len(wav) / sr - len(speaking) * chunk_seconds, 3))
     return {"audio": asr_fp, "audio_synthesis": meta}

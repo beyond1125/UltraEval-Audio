@@ -129,43 +129,52 @@ def main():
             setattr(task_cfg, attr, getattr(args, attr))
     logger.info("task cfg:\n{}".format(task_cfg))
 
-    # 创建 predictor：根据 --use_model_pool 决定是否使用模型池
-    # auto 模式下，依据模型类的 __init__ 是否接受 `gpu_id` 自动判断（@isolated 离线模型）。
-    model_spec = registry._model.get(task_cfg.model, {})
-    if args.use_model_pool == "auto":
-        cls_path = model_spec.get("cls")
-        if cls_path and model_supports_pool(cls_path):
-            use_pool = True
+    # ``--inf_file`` is a replay/evaluate-only path.  Its Dataset supplies the
+    # saved inference events, so constructing a GPU predictor would only waste
+    # memory (and can OOM beside an active S2S evaluation).  Missing inference
+    # events are rejected explicitly by EvalTask rather than regenerated under a
+    # potentially different model/configuration.
+    if args.inf_file:
+        predictor = None
+        logger.info("Replay-only mode: using --inf_file records; skipping model construction.")
+    else:
+        # 根据 --use_model_pool 决定是否使用模型池。auto 模式下，依据模型类的
+        # __init__ 是否接受 gpu_id 自动判断（@isolated 离线模型）。
+        model_spec = registry._model.get(task_cfg.model, {})
+        if args.use_model_pool == "auto":
+            cls_path = model_spec.get("cls")
+            if cls_path and model_supports_pool(cls_path):
+                use_pool = True
+                logger.info(
+                    f"Auto-detected GPU/isolated model '{task_cfg.model}' ({cls_path}); "
+                    f"enabling IsolatedModelPool."
+                )
+            else:
+                use_pool = False
+                logger.info(
+                    f"Auto-detected non-GPU/API model '{task_cfg.model}'; "
+                    f"skipping IsolatedModelPool."
+                )
+        else:
+            use_pool = args.use_model_pool == "on"
+
+        if use_pool:
+            gpu_ids = get_available_gpu_ids()
+            num_instances = args.workers if args.workers > 1 else len(gpu_ids)
+
+            model_kwargs = model_spec.get("args", {})
+
             logger.info(
-                f"Auto-detected GPU/isolated model '{task_cfg.model}' ({cls_path}); "
-                f"enabling IsolatedModelPool."
+                f"Using IsolatedModelPool with {num_instances} instances on GPUs {gpu_ids}"
+            )
+            predictor = IsolatedModelPool(
+                model_factory=lambda **kw: registry.get_model(task_cfg.model, **kw),
+                model_kwargs=model_kwargs,
+                gpu_ids=gpu_ids,
+                num_instances=num_instances,
             )
         else:
-            use_pool = False
-            logger.info(
-                f"Auto-detected non-GPU/API model '{task_cfg.model}'; "
-                f"skipping IsolatedModelPool."
-            )
-    else:
-        use_pool = args.use_model_pool == "on"
-
-    if use_pool:
-        gpu_ids = get_available_gpu_ids()
-        num_instances = args.workers if args.workers > 1 else len(gpu_ids)
-
-        model_kwargs = model_spec.get("args", {})
-
-        logger.info(
-            f"Using IsolatedModelPool with {num_instances} instances on GPUs {gpu_ids}"
-        )
-        predictor = IsolatedModelPool(
-            model_factory=lambda **kw: registry.get_model(task_cfg.model, **kw),
-            model_kwargs=model_kwargs,
-            gpu_ids=gpu_ids,
-            num_instances=num_instances,
-        )
-    else:
-        predictor = registry.get_model(task_cfg.model)
+            predictor = registry.get_model(task_cfg.model)
 
     # evaluator = registry.get_evaluator(task_cfg.evaluator)
 
