@@ -1,6 +1,7 @@
 import argparse
 import json
 import logging
+import os
 import select
 import sys
 import torch
@@ -60,7 +61,19 @@ if __name__ == "__main__":
 
             logger.info(f"Received input: {x}")
 
-            result = pipe(x.pop("audio"), **x)
+            # Transformers' ASR pipeline delegates a filename to ffmpeg. The isolated
+            # Whisper environment intentionally has no system ffmpeg dependency, while UEA
+            # model adapters emit ordinary WAV files. Read local WAV ourselves and pass the
+            # waveform mapping accepted by the pipeline instead.
+            audio = x.pop("audio")
+            if isinstance(audio, str) and os.path.isfile(audio):
+                import numpy as np
+                import soundfile as sf
+                wav, sr = sf.read(audio, dtype="float32", always_2d=True)
+                wav = wav.mean(axis=1) if wav.shape[1] > 1 else wav[:, 0]
+                audio = {"array": np.ascontiguousarray(wav, dtype=np.float32),
+                         "sampling_rate": int(sr)}
+            result = pipe(audio, **x)
             retry = 3
             while retry:
                 print(f"{prefix}{result['text']}", flush=True)

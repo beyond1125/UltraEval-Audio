@@ -21,6 +21,8 @@ class WhisperModel(OfflineModel):
         path: str = "openai/whisper-large-v3",
         sample_params: Dict[str, any] = None,
     ):
+        # Registry YAML is static; a portable runner may pass ${WHISPER_MODEL_DIR}.
+        path = os.path.expandvars(path)
         if path.startswith("openai/") and not os.path.exists(path):
             path = self._download_model(path)
 

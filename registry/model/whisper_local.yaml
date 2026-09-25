@@ -13,9 +13,8 @@
 whisper-local:
   class: audio_evals.models.whisper.WhisperModel
   args:
-    # NOTE: an absolute path, not ${VAR}. Unlike our own adapters, UEA's registry loader does no
-    # environment expansion, so a placeholder here would be passed to WhisperModel verbatim.
-    path: /data/pretrained_models/whisper/whisper-large-v3
+    # WhisperModel expands this value at construction time; the FD runner validates it.
+    path: ${WHISPER_MODEL_DIR}
     env_path: envs/whisper
     requirements_path: audio_evals/lib/whisper/requirements.txt
     sample_params: {}

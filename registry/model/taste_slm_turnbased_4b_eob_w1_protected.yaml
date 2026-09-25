@@ -1,0 +1,5 @@
+# Trained DeepDialogue turn-based 4B model, evaluated as one audio user turn -> text agent turn.
+taste-slm-turnbased-4b-eob-w1-protected:
+  class: audio_evals.models.taste_slm_turnbased.TurnBasedTasteSLM
+  args:
+    config_path: ${TURNBASED_EVAL_DIR}/configs/tastes_turnbased_4b_eob_w1_protected_spokenqa.yaml

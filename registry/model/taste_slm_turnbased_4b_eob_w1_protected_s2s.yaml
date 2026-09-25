@@ -1,0 +1,6 @@
+# Paired S2S/S2T profile for the turn-based 4B checkpoint.
+# S2S synthesizes the same generated answer returned as native text.
+taste-slm-turnbased-4b-eob-w1-protected-s2s:
+  class: audio_evals.models.taste_slm_turnbased.TurnBasedTasteSLM
+  args:
+    config_path: ${TURNBASED_EVAL_DIR}/configs/tastes_turnbased_4b_eob_w1_protected_spokenqa_s2s.yaml
