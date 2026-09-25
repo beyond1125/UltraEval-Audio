@@ -3,13 +3,14 @@
 The adapter deliberately delegates raw-audio preprocessing, causal TASTE extraction,
 the ``<lis> U <spk> A <eob>`` grammar, and EOB decoding to
 ``train_slm/evaluation/turnbased_eval``.  It only bridges that inference authority
-to UEA's audio-in/text-out contract.
+to UEA's audio-in/text-out contract, optionally synthesizing the same generated answer for S2S QA.
 """
 from __future__ import annotations
 
 import json
 import logging
 import os
+import tempfile
 import sys
 import threading
 import time
@@ -20,7 +21,7 @@ from audio_evals.base import PromptStruct
 from audio_evals.models.model import OfflineModel
 
 logger = logging.getLogger(__name__)
-ADAPTER_VERSION = "uea_taste_slm_turnbased_adapter_v1"
+ADAPTER_VERSION = "uea_taste_slm_turnbased_adapter_v3"
 _BUILD_LOCK = threading.Lock()
 
 
@@ -52,7 +53,7 @@ def _local_cuda_device(gpu_id: Any) -> str:
 
 
 class TurnBasedTasteSLM(OfflineModel):
-    """One trained user turn from audio -> one generated agent turn as text."""
+    """One trained user turn from audio -> one generated agent turn as text and optional audio."""
 
     def __init__(self, config_path: str, gpu_id=None, sample_params=None, **overrides):
         super().__init__(is_chat=True, sample_params=sample_params)
@@ -63,6 +64,8 @@ class TurnBasedTasteSLM(OfflineModel):
         self._models = None
         self._torch = None
         self._lock = threading.Lock()
+        self._last_generation = None
+        self._last_result = None
 
     def _build(self):
         if self._models is not None:
@@ -113,36 +116,56 @@ class TurnBasedTasteSLM(OfflineModel):
         with self._lock:
             models = self._build()
             cfg, torch = self._cfg, self._torch
-            from turnbased_eval.core.audio import load_user_audio
-            from turnbased_eval.core.tokenizer import tokenize_user_audio
-            from turnbased_eval.generate import generate_turn
-
             started = time.perf_counter()
-            wav, audio_meta = load_user_audio(
-                audio_path,
-                quantize=bool(cfg.get("input_quantization", True)),
-                resampler=cfg.get("input_resampler", "torchaudio"),
-            )
-            user, tokens = tokenize_user_audio(
-                models.taste_extractor, wav, models.slm.num_codebooks, models.text_tokenizer,
-            )
             seed = zlib.crc32(f"{cfg.get('seed', 42)}:{sample_id}".encode()) & 0x7FFFFFFF
-            # Sampling is optional, but must stay stable across evaluation order when enabled.
+            # Sampling remains per-sample and independent of UEA scheduling order.
             with torch.random.fork_rng(devices=[models.device] if str(models.device).startswith("cuda") else []):
                 torch.manual_seed(seed)
                 if str(models.device).startswith("cuda"):
                     torch.cuda.manual_seed(seed)
-                generated = generate_turn(
-                    models.slm, [], user,
-                    int(models.cfg.data_config.get("pad_text_id", 0)), models.text_tokenizer,
-                    models.device, float(cfg.get("temperature", 0.8)), int(cfg.get("top_k", 25)),
-                    float(cfg.get("top_p", 1.0)), bool(cfg.get("greedy", True)),
-                    int(cfg.get("max_words", 80)), float(cfg.get("eob_logit_bias", 0.0)),
-                )
+                # Keep the benchmark bridge thin: `run_one()` is the sole TB inference
+                # authority and writes the diagnostic dialogue as question + gap + answer.
+                from turnbased_eval import generate
+                synthesize_audio = bool(cfg.get("synthesize_audio", False))
+                artifact_dir = cfg.get("artifact_dir")
+                if synthesize_audio:
+                    if artifact_dir:
+                        os.makedirs(artifact_dir, exist_ok=True)
+                    run_dir = tempfile.mkdtemp(prefix=f"taste_tb_{sample_id}_", dir=artifact_dir or None)
+                    cleanup = None
+                else:
+                    cleanup = tempfile.TemporaryDirectory(prefix=f"taste_tb_{sample_id}_")
+                    run_dir = cleanup.name
+                try:
+                    result = generate.run_one(
+                        models, audio_path, run_dir,
+                        temperature=float(cfg.get("temperature", 0.8)),
+                        top_k=int(cfg.get("top_k", 25)), top_p=float(cfg.get("top_p", 1.0)),
+                        greedy=bool(cfg.get("greedy", True)), max_words=int(cfg.get("max_words", 80)),
+                        eob_logit_bias=float(cfg.get("eob_logit_bias", 0.0)),
+                        quantize_input=bool(cfg.get("input_quantization", True)),
+                        input_resampler=cfg.get("input_resampler", "torchaudio"),
+                        unit_top_k=int(cfg.get("unit_top_k", 25)),
+                        unit_top_p=float(cfg.get("unit_top_p", 0.8)),
+                        unit_temperature=float(cfg.get("unit_temperature", 1.0)),
+                        gap_seconds=float(cfg.get("dialogue_gap_seconds", 0.5)),
+                        output_sample_rate=int(cfg.get("output_sample_rate", 24000)),
+                        skip_audio=not synthesize_audio,
+                    )
+                    with open(os.path.join(run_dir, "generation.json"), encoding="utf-8") as handle:
+                        generated = json.load(handle)
+                    with open(os.path.join(run_dir, "input_tokens.json"), encoding="utf-8") as handle:
+                        tokens = json.load(handle)
+                finally:
+                    if cleanup is not None:
+                        cleanup.cleanup()
+                text = str(generated["predicted_text"]).strip()
+                forced = bool(generated["forced_eob"])
+                trace = generated["trace"]
+                audio_path_out = os.path.join(run_dir, "agent_generated.wav") if synthesize_audio else None
+                self._last_result = result if synthesize_audio else None
+                self._last_generation = generated
 
-        text = str(generated["text"]).strip()
-        forced = bool(generated["forced_eob"])
-        trace = generated["trace"]
         out = {
             "text": text,
             "status": "ok" if text else "empty",
@@ -152,21 +175,30 @@ class TurnBasedTasteSLM(OfflineModel):
             "protocol_version": "turnbased_lis_user_spk_agent_eob_v1",
             "finish_reason": "max_words" if forced else "eob",
             "truncated": forced,
-            "answer_tokens": len(generated["text_ids"]),
+            "answer_tokens": len(self._last_generation["text_ids"]),
+            "n_predicted_text_tokens": len(self._last_generation["text_ids"]),
             "forced_eob": forced,
             "eob_text_id": int(models.slm.eob_text_id),
             "final_eob_margin": trace[-1].get("eob_margin") if trace else None,
-            "prompt_positions": int(generated["prompt_positions"]),
+            "prompt_positions": int(self._last_generation["prompt_positions"]),
             "effective_decoding": {
                 "text": "greedy" if cfg.get("greedy", True) else "sample",
                 "temperature": cfg.get("temperature", 0.8), "top_k": cfg.get("top_k", 25),
                 "top_p": cfg.get("top_p", 1.0), "eob_logit_bias": cfg.get("eob_logit_bias", 0.0),
                 "sample_seed": seed,
             },
-            "audio_meta": audio_meta,
-            "ctc_transcript": tokens["ctc_text"],
-            "ctc_num_tokens": tokens["n_text_tokens"],
-            "tokenizer_windowing": tokens["windowing"],
+            "audio_meta": result["input"],
+            "ctc_transcript": result["ctc_text"],
+            "ctc_num_tokens": result["n_input_text_tokens"],
+            "tokenizer_windowing": tokens.get("windowing"),
             "elapsed_sec": round(time.perf_counter() - started, 4),
         }
+        if bool(cfg.get("synthesize_audio", False)):
+            out.update(audio=audio_path_out, audio_synthesis={
+                "path": audio_path_out, "sample_rate": int(cfg.get("output_sample_rate", 24000)),
+                "native_sample_rate": self._last_result["audio"]["native_vocoder_sample_rate"],
+                "n_unit_tokens": self._last_result["audio"]["n_unit_tokens"],
+                "voice": "zero_192d_generic", "generation_dir": run_dir,
+                "dialogue_path": os.path.join(run_dir, "dialogue_predicted.wav"),
+            })
         return json.dumps(out, ensure_ascii=False)
